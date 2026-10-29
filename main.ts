@@ -46,6 +46,7 @@ export default class EmojiSearchPlugin extends Plugin {
   onSupportChange: (() => void) | null = null;
   private saveTimer: number | null = null;
   private detecting = false;
+  private unloaded = false;
 
   async onload() {
     this.settings = normalizeSettings(await this.loadData());
@@ -70,6 +71,7 @@ export default class EmojiSearchPlugin extends Plugin {
   }
 
   onunload() {
+    this.unloaded = true;
     if (this.saveTimer !== null) {
       window.clearTimeout(this.saveTimer);
       void this.saveData(this.settings);
@@ -164,6 +166,7 @@ export default class EmojiSearchPlugin extends Plugin {
     const bad: string[] = [];
     let i = 0;
     const step = () => {
+      if (this.unloaded) return;
       bad.push(...findUnsupported(chars.slice(i, i + 200)));
       i += 200;
       if (i < chars.length) {
@@ -207,7 +210,7 @@ class EmojiModal extends Modal {
     // Escape clears a non-empty query first and only then closes. Obsidian registers the close
     // handler itself, so it is wrapped rather than competed with.
     const keys = (this.scope as unknown as { keys?: { key: string | null; func: (...args: unknown[]) => unknown }[] }).keys;
-    const esc = keys?.find((k) => k.key === 'Escape');
+    const esc = Array.isArray(keys) ? keys.find((k) => k?.key === 'Escape' && typeof k.func === 'function') : undefined;
     if (esc) {
       const close = esc.func;
       esc.func = (...args: unknown[]) => {
@@ -240,7 +243,7 @@ class EmojiModal extends Modal {
         spellcheck: 'false',
       },
     });
-    this.toneBtn = head.createEl('button', { cls: 'emoji-search-tone', attr: { 'aria-haspopup': 'menu' } });
+    this.toneBtn = head.createEl('button', { cls: 'emoji-search-tone' });
     this.toneBtn.addEventListener('click', () => this.cycleTone());
     this.paintTone();
 
@@ -255,7 +258,7 @@ class EmojiModal extends Modal {
 
     this.scroller = this.contentEl.createDiv({ cls: 'emoji-search-scroll' });
     this.sections = this.scroller.createDiv({ cls: 'emoji-search-sections' });
-    this.results = this.scroller.createDiv({ cls: 'emoji-search-results emoji-search-hidden', attr: { role: 'listbox', 'aria-label': 'Search results' } });
+    this.results = this.scroller.createDiv({ cls: 'emoji-search-results emoji-search-hidden', attr: { id: 'emoji-search-found', role: 'listbox', 'aria-label': 'Search results' } });
     this.sections.setAttribute('role', 'listbox');
     this.sections.setAttribute('aria-label', 'Emojis');
     this.sections.id = 'emoji-search-list';
@@ -346,6 +349,7 @@ class EmojiModal extends Modal {
     this.cells = [];
     this.sectionEls = [];
     this.contentEl.toggleClass('is-searching', q !== '');
+    this.input.setAttribute('aria-controls', q ? 'emoji-search-found' : 'emoji-search-list');
 
     if (q) {
       this.sections.addClass('emoji-search-hidden');
@@ -449,6 +453,7 @@ class EmojiModal extends Modal {
   }
 
   private onKey(ev: KeyboardEvent) {
+    if (ev.isComposing) return;
     const horizontal = this.query === '' || this.navMode;
     switch (ev.key) {
       case 'ArrowRight':
@@ -469,14 +474,15 @@ class EmojiModal extends Modal {
         this.navMode = true;
         const h = this.cells[this.index]?.getBoundingClientRect().height || 40;
         const rows = Math.max(1, Math.floor(this.scroller.clientHeight / h) - 1);
-        let i = this.index;
+        const start = this.index;
+        let i = start;
         for (let n = 0; n < rows; n++) {
           this.index = i;
           const next = this.vertical(ev.key === 'PageDown' ? 1 : -1);
           if (next === i) break;
           i = next;
         }
-        this.index = Math.min(this.index, this.cells.length - 1);
+        this.index = start;
         this.setActive(i, true);
         return;
       }
@@ -616,7 +622,7 @@ class ShortcodeSuggest extends EditorSuggest<Emoji> {
 /** Typing the closing colon of `:tada:` turns it into the emoji; Ctrl+Z gives `:tada:` back. */
 function closingColon(plugin: EmojiSearchPlugin) {
   return EditorView.inputHandler.of((view, from, to, text) => {
-    if (text !== ':' || from !== to || !plugin.settings.closingColon || view.composing) return false;
+    if (text !== ':' || from !== to || !plugin.settings.closingColon || view.composing || view.state.selection.ranges.length > 1) return false;
     const line = view.state.doc.lineAt(from);
     const typed = `${line.text.slice(0, from - line.from)}:`;
     const hit = findClosed(typed, typed.length);
