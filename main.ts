@@ -28,6 +28,7 @@ import { DEFAULTS, normalizeSettings } from './src/settings.ts';
 import type { Settings } from './src/settings.ts';
 import { findClosed, findTrigger } from './src/trigger.ts';
 import { findUnsupported } from './src/support.ts';
+import { renderMore } from './src/more-link.ts';
 
 const TONE_NAMES = ['Default', 'Light', 'Medium-light', 'Medium', 'Medium-dark', 'Dark'];
 const SUPPORT_KEY = 'emoji-search-unsupported';
@@ -768,5 +769,6 @@ class EmojiSettingTab extends PluginSettingTab {
           this.display();
         }),
       );
+    renderMore(this.containerEl, (el) => new Setting(el));
   }
 }
